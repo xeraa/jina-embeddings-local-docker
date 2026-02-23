@@ -1,15 +1,25 @@
-# Jina Embeddings v5 Text Nano (Retrieval) — llama.cpp Docker Setup
+# Jina Embeddings v5 Text — llama.cpp Docker Setup
 
-Self-hosted embedding server for [jina-embeddings-v5-text-nano-retrieval](https://huggingface.co/jinaai/jina-embeddings-v5-text-nano-retrieval) using llama.cpp.
+Self-hosted embedding server for [jina-embeddings-v5-text](https://huggingface.co/collections/jinaai/jina-embeddings-v5-text) retrieval models using llama.cpp.
 
-> **Why a custom build?** This model uses the EuroBERT architecture, which isn't in mainline llama.cpp yet. Both Dockerfiles clone and build from [Jina's fork](https://github.com/jina-ai/llama.cpp/tree/feat-jina-v5-text) that adds support for it.
+Supports two model sizes:
+
+| | Nano | Small |
+|---|---|---|
+| Parameters | 239M | 596M |
+| Embedding dims | 768 | 1024 |
+| F16 model size | ~424 MB | ~1.1 GB |
+| Matryoshka dims | 32–768 | 32–1024 |
+| Architecture | EuroBERT | Qwen3 |
+
+> **Why a custom build?** The nano model uses the EuroBERT architecture, which isn't in mainline llama.cpp yet. Both Dockerfiles clone and build from [Jina's fork](https://github.com/jina-ai/llama.cpp/tree/feat-jina-v5-text) that adds support for it.
 
 ## Project Structure
 
 ```
-├── Dockerfile              # CPU build on debian:bookworm-slim (default)
+├── Dockerfile              # CPU build on debian:bookworm-slim
 ├── Dockerfile.cuda         # NVIDIA CUDA build on nvidia/cuda runtime
-├── docker-compose.yml      # Base service definition (CPU)
+├── docker-compose.yml      # Service definitions with nano/small profiles
 ├── docker-compose.cuda.yml # Compose override for GPU support
 ├── download-model.sh       # Downloads the F16 GGUF model from HuggingFace
 └── models/                 # Model files (created by download script)
@@ -18,11 +28,14 @@ Self-hosted embedding server for [jina-embeddings-v5-text-nano-retrieval](https:
 ## Quick Start
 
 ```bash
-# 1. Download the model (~424 MB)
-./download-model.sh
+# 1. Download a model
+./download-model.sh nano    # ~424 MB
+./download-model.sh small   # ~1.1 GB
 
 # 2. Build and start the server
-docker compose up --build
+docker compose --profile nano up --build
+# or
+docker compose --profile small up --build
 ```
 
 The OpenAI-compatible embedding API will be available at `http://localhost:8080`.
@@ -46,7 +59,7 @@ curl -s http://localhost:8080/v1/embeddings \
 
 ## Elasticsearch Integration
 
-Register the inference endpoint, then create a pipeline that prepends `Document: ` at index time and (optionally) truncates embeddings to `EMBED_DIMS`:
+Register the inference endpoint:
 
 ```
 PUT _inference/text_embedding/jina-local
@@ -54,19 +67,21 @@ PUT _inference/text_embedding/jina-local
   "service": "openai",
   "service_settings": {
     "api_key": "unused",
-    "model_id": "jina-embeddings-v5-text-nano-retrieval",
+    "model_id": "jina-embeddings-v5-text",
     "url": "http://host.docker.internal:8080/v1/embeddings",
     "dimensions": 768
   }
 }
 ```
 
-For 768 dims (no truncation needed):
+Use `"dimensions": 1024` for the small model.
+
+Create an ingest pipeline that prepends `Document: ` at index time:
 
 ```
 PUT _ingest/pipeline/jina-embeddings
 {
-  "description": "Generate embeddings with jina-embeddings-v5-text-nano-retrieval",
+  "description": "Generate embeddings with jina-embeddings-v5-text-retrieval",
   "processors": [
     {
       "script": {
@@ -97,7 +112,7 @@ Add a script processor to the pipeline to truncate (e.g. to 32 dims):
 ```
 PUT _ingest/pipeline/jina-embeddings-32
 {
-  "description": "Generate embeddings with jina-embeddings-v5-text-nano-retrieval",
+  "description": "Generate embeddings with jina-embeddings-v5-text-retrieval",
   "processors": [
     {
       "script": {
@@ -111,18 +126,18 @@ PUT _ingest/pipeline/jina-embeddings-32
           "input_field": "_inference_input",
           "output_field": "content_embedding"
         }
-      }
+}
     },
-    {
+{
       "script": {
         "source": "def dims = 32; def result = []; for (int i = 0; i < dims; i++) { result.add(ctx.content_embedding[i]); } ctx.content_embedding = result;"
-      }
+}
     },
-    {
+{
       "remove": {
         "field": "_inference_input"
       }
-    }
+  }
   ]
 }
 ```
@@ -143,10 +158,9 @@ PUT jina-demo
       "content_embedding": {
         "type": "dense_vector",
         "dims": 768,
-        "similarity": "cosine",
         "index": true
       }
-}
+    }
   }
 }
 ```
@@ -266,12 +280,41 @@ POST jina-demo/_search
 }
 ```
 
+Using Matryoshka during search is cumbersome (without an application):
+
+```
+# Step 1: Get the query embedding
+POST _inference/text_embedding/jina-local
+{
+  "input": ["Query: my app keeps getting killed in the cluster"]
+}
+
+# Copy the first 32 values from the response, then:
+
+# Step 2: Search with the truncated vector
+POST jina-demo/_search
+{
+  "size": 1,
+  "knn": {
+    "field": "content_embedding",
+    "query_vector": [
+      -0.11795902,
+      0.037990537,
+      ...
+    ]
+  }
+}
+```
+
+
 ## GPU Support (NVIDIA CUDA)
 
 Layer the CUDA override on top of the base compose file:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.cuda.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.cuda.yml --profile nano up --build
+# or
+docker compose -f docker-compose.yml -f docker-compose.cuda.yml --profile small up --build
 ```
 
 **Prerequisites:** [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) must be installed on the host.
@@ -284,16 +327,16 @@ All llama-server options can be set via `LLAMA_ARG_*` environment variables in `
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLAMA_ARG_MODEL` | `v5-nano-retrieval-F16.gguf` | Path to the GGUF model file |
+| `LLAMA_ARG_MODEL` | per profile | Path to the GGUF model file |
 | `LLAMA_ARG_EMBEDDINGS` | `1` | Enable embedding mode (required) |
-| `LLAMA_ARG_POOLING` | `last` | Pooling strategy — this model uses last-token pooling |
-| `LLAMA_ARG_CTX_SIZE` | `8192` | Max context length (model supports up to 8192) |
+| `LLAMA_ARG_POOLING` | `last` | Pooling strategy — both models use last-token pooling |
+| `LLAMA_ARG_CTX_SIZE` | `8192` | Max context length |
 | `LLAMA_ARG_BATCH_SIZE` | `8192` | Batch size for prompt processing |
-| `LLAMA_ARG_UBATCH_SIZE` | `8192` | Micro-batch size |
+| `LLAMA_ARG_UBATCH_SIZE` | `8192` / `32768` | Micro-batch size (nano / small) |
 | `LLAMA_ARG_N_PARALLEL` | `4` | Number of concurrent request slots |
 | `LLAMA_ARG_N_GPU_LAYERS` | `999` | Layers to offload to GPU (CUDA override only) |
 | `LLAMA_ARG_PORT` | `8080` | Server port inside the container |
 
 ## License
 
-The model is licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). For commercial use, contact [sales@jina.ai](mailto:sales@jina.ai).
+Both models are licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). For commercial use, contact [sales@jina.ai](mailto:sales@jina.ai).

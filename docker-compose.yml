@@ -1,30 +1,48 @@
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: server
+  ports:
+    - "8080:8080"
+  volumes:
+    - ./models:/models:ro
+  deploy:
+    resources:
+      limits:
+        memory: 2g
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  restart: unless-stopped
+
+x-env: &env
+  LLAMA_ARG_EMBEDDINGS: 1
+  LLAMA_ARG_POOLING: last
+  LLAMA_ARG_N_PARALLEL: 4
+  LLAMA_ARG_PORT: 8080
+
 services:
-  jina-embeddings:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: server
-    container_name: jina-embeddings
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./models:/models:ro
+  jina-nano:
+    <<: *common
+    container_name: jina-nano
+    profiles: ["nano"]
     environment:
-      - LLAMA_ARG_MODEL=/models/v5-nano-retrieval-F16.gguf
-      - LLAMA_ARG_EMBEDDINGS=1
-      - LLAMA_ARG_POOLING=last
-      - LLAMA_ARG_BATCH_SIZE=8192
-      - LLAMA_ARG_UBATCH_SIZE=8192
-      - LLAMA_ARG_CTX_SIZE=8192
-      - LLAMA_ARG_N_PARALLEL=4
-      - LLAMA_ARG_PORT=8080
-    deploy:
-      resources:
-        limits:
-          memory: 2g
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    restart: unless-stopped
+      <<: *env
+      LLAMA_ARG_MODEL: /models/v5-nano-retrieval-F16.gguf
+      LLAMA_ARG_BATCH_SIZE: 8192
+      LLAMA_ARG_UBATCH_SIZE: 8192
+      LLAMA_ARG_CTX_SIZE: 8192
+
+  jina-small:
+    <<: *common
+    container_name: jina-small
+    profiles: ["small"]
+    environment:
+      <<: *env
+      LLAMA_ARG_MODEL: /models/v5-small-retrieval-F16.gguf
+      LLAMA_ARG_BATCH_SIZE: 8192
+      LLAMA_ARG_UBATCH_SIZE: 32768
+      LLAMA_ARG_CTX_SIZE: 8192
