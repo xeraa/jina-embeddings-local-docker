@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="banner.svg" alt="jina-embeddings-v5 local Docker setup with llama.cpp" width="800"/>
+  <img src="banner.svg" alt="jina-embeddings-v5 local Docker setup with llama.cpp" width="680"/>
 </p>
 
 # Jina Embeddings v5 Text — llama.cpp Docker Setup
