@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="banner.svg" alt="jina-embeddings-v5 local Docker setup with llama.cpp" width="800"/>
+</p>
+
 # Jina Embeddings v5 Text — llama.cpp Docker Setup
 
 Self-hosted embedding server for [jina-embeddings-v5-text](https://huggingface.co/collections/jinaai/jina-embeddings-v5-text) retrieval models using llama.cpp.
