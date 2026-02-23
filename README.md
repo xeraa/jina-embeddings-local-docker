@@ -45,6 +45,21 @@ docker compose --profile small up --build
 
 The OpenAI-compatible embedding API will be available at `http://localhost:8080`.
 
+## Setting Up Elasticsearch & Kibana
+
+The easiest way to get a local Elasticsearch and Kibana instance is [start-local](https://github.com/elastic/start-local):
+
+```bash
+curl -fsSL https://elastic.co/start-local | sh
+```
+
+This creates an `elastic-start-local/` folder with Elasticsearch on `http://localhost:9200` and Kibana on `http://localhost:5601`. The generated API key and password are stored in `elastic-start-local/.env`.
+
+Once both the embedding server and Elasticsearch are running, open Kibana at [http://localhost:5601](http://localhost:5601), navigate to **Dev Tools**, and follow the [Elasticsearch Integration](#elasticsearch-integration) section below.
+
+> [!TIP]
+> Since start-local runs Elasticsearch in Docker, it can't reach `localhost:8080` on your host directly. Use `http://host.docker.internal:8080` as the embedding server URL when creating the inference endpoint.
+
 ## Usage
 
 Generate embeddings via the `/v1/embeddings` endpoint:
