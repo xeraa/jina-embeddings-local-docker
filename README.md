@@ -12,7 +12,8 @@ Supports two model sizes:
 | Matryoshka dims | 32–768 | 32–1024 |
 | Architecture | EuroBERT | Qwen3 |
 
-> **Why a custom build?** The nano model uses the EuroBERT architecture, which isn't in mainline llama.cpp yet. Both Dockerfiles clone and build from [Jina's fork](https://github.com/jina-ai/llama.cpp/tree/feat-jina-v5-text) that adds support for it.
+> [!NOTE]
+> The nano model uses the EuroBERT architecture, which isn't in mainline llama.cpp yet. Both Dockerfiles clone and build from [Jina's fork](https://github.com/jina-ai/llama.cpp/tree/feat-jina-v5-text) that adds support for it.
 
 ## Project Structure
 
@@ -55,13 +56,14 @@ curl -s http://localhost:8080/v1/embeddings \
   }' | jq .
 ```
 
-**Important:** For the retrieval variant, prefix inputs with `Query: ` or `Document: ` to get proper asymmetric embeddings for search use cases.
+> [!IMPORTANT]
+> For the retrieval variant, prefix inputs with `Query: ` or `Document: ` to get proper asymmetric embeddings for search use cases.
 
 ## Elasticsearch Integration
 
 Register the inference endpoint:
 
-```
+```json
 PUT _inference/text_embedding/jina-local
 {
   "service": "openai",
@@ -78,7 +80,7 @@ Use `"dimensions": 1024` for the small model.
 
 Create an ingest pipeline that prepends `Document: ` at index time:
 
-```
+```json
 PUT _ingest/pipeline/jina-embeddings
 {
   "description": "Generate embeddings with jina-embeddings-v5-text-retrieval",
@@ -109,7 +111,7 @@ PUT _ingest/pipeline/jina-embeddings
 The model supports [Matryoshka embeddings](https://huggingface.co/blog/matryoshka) — the first N dimensions are independently meaningful, so you can truncate for smaller/faster vectors. Supported dimensions are **32, 64, 128, 256, 512, 768**.
 Add a script processor to the pipeline to truncate (e.g. to 32 dims):
 
-```
+```json
 PUT _ingest/pipeline/jina-embeddings-32
 {
   "description": "Generate embeddings with jina-embeddings-v5-text-retrieval",
@@ -144,7 +146,11 @@ PUT _ingest/pipeline/jina-embeddings-32
 
 Create the index with matching dimensions:
 
-```
+
+> [!WARNING]
+> `query_vector_builder` returns full-dimension vectors from the inference endpoint and does not truncate them to match the index. For truncated Matryoshka indexes, you need to fetch the query embedding via `POST _inference/text_embedding/jina-local`, slice the array to the target dimension, and pass it as `query_vector`. Full-dimension indexes (768/1024) can use `query_vector_builder` directly.
+
+```json
 PUT jina-demo
 {
   "settings": {
@@ -167,7 +173,7 @@ PUT jina-demo
 
 Add example documents with the `_bulk` API:
 
-```
+```json
 POST jina-demo/_bulk
 {"index":{}}
 {"content":"To resolve an out-of-memory error in Kubernetes, increase the resource limits in your pod spec. Set resources.limits.memory to a higher value and redeploy. If the OOMKilled status persists, profile your application's heap usage to find the leak."}
@@ -193,7 +199,7 @@ POST jina-demo/_bulk
 
 Retrieve a document with the embeddings to see the complete outcome:
 
-```
+```json
 GET jina-demo/_search
 {
     "size": 1,
@@ -203,7 +209,7 @@ GET jina-demo/_search
 
 Search with `Query: ` prefix:
 
-```
+```json
 # "my app keeps getting killed" → should find the Kubernetes OOM doc
 POST jina-demo/_search
 {
@@ -280,9 +286,9 @@ POST jina-demo/_search
 }
 ```
 
-Using Matryoshka during search is cumbersome (without an application):
+Using Matryoshka during search is a bit more complicated (without an application):
 
-```
+```json
 # Step 1: Get the query embedding
 POST _inference/text_embedding/jina-local
 {
@@ -319,7 +325,8 @@ docker compose -f docker-compose.yml -f docker-compose.cuda.yml --profile small 
 
 **Prerequisites:** [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) must be installed on the host.
 
-> **Note:** Docker on macOS runs inside a Linux VM with no GPU passthrough. GPU support requires a Linux host with NVIDIA hardware.
+> [!NOTE]
+> Docker on macOS runs inside a Linux VM with no GPU passthrough. GPU support requires a Linux host with NVIDIA hardware.
 
 ## Server Configuration
 
