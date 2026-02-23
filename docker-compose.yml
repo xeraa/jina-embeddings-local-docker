@@ -1,0 +1,30 @@
+services:
+  jina-embeddings:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: server
+    container_name: jina-embeddings
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./models:/models:ro
+    environment:
+      - LLAMA_ARG_MODEL=/models/v5-nano-retrieval-${QUANT:-F16}.gguf
+      - LLAMA_ARG_EMBEDDINGS=1
+      - LLAMA_ARG_POOLING=last
+      - LLAMA_ARG_BATCH_SIZE=8192
+      - LLAMA_ARG_UBATCH_SIZE=8192
+      - LLAMA_ARG_CTX_SIZE=8192
+      - LLAMA_ARG_N_PARALLEL=4
+      - LLAMA_ARG_PORT=8080
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped

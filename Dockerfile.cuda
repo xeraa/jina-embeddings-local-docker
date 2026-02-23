@@ -1,0 +1,57 @@
+ARG CUDA_VERSION=12.4.0
+ARG CUDA_DISTRO=ubuntu24.04
+
+# ---------- build stage ----------
+FROM nvidia/cuda:${CUDA_VERSION}-devel-${CUDA_DISTRO} AS build
+
+ARG CUDA_DOCKER_ARCH=default
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends build-essential git cmake libssl-dev ca-certificates
+
+WORKDIR /build
+
+RUN git clone --depth 1 --branch feat-jina-v5-text \
+    https://github.com/jina-ai/llama.cpp.git .
+
+RUN if [ "${CUDA_DOCKER_ARCH}" != "default" ]; then \
+        export CMAKE_ARGS="-DCMAKE_CUDA_ARCHITECTURES=${CUDA_DOCKER_ARCH}"; \
+    fi && \
+    cmake -S . -B out -DCMAKE_BUILD_TYPE=Release \
+        -DGGML_NATIVE=OFF \
+        -DGGML_CUDA=ON \
+        -DGGML_BACKEND_DL=ON \
+        -DGGML_CPU_ALL_VARIANTS=ON \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined \
+        ${CMAKE_ARGS:-} && \
+    cmake --build out -j $(nproc)
+
+RUN mkdir -p /app/lib && \
+    cp out/bin/llama-server /app/ && \
+    find out -name "*.so*" -exec cp -P {} /app/lib/ \;
+
+# ---------- runtime stage ----------
+FROM nvidia/cuda:${CUDA_VERSION}-runtime-${CUDA_DISTRO} AS server
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libgomp1 curl ca-certificates && \
+    rm -rf /tmp/*
+
+RUN useradd --system --create-home --no-log-init llama
+USER llama
+
+COPY --from=build --chown=llama /app/llama-server /app/llama-server
+COPY --from=build --chown=llama /app/lib/         /app/lib/
+
+WORKDIR /app
+ENV LLAMA_ARG_HOST=0.0.0.0
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["curl", "-f", "http://localhost:8080/health"]
+
+ENTRYPOINT ["/app/llama-server"]

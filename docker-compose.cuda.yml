@@ -1,0 +1,15 @@
+services:
+  jina-embeddings:
+    build:
+      dockerfile: Dockerfile.cuda
+    environment:
+      - LLAMA_ARG_N_GPU_LAYERS=999
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
