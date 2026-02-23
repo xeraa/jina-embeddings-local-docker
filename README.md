@@ -7,68 +7,25 @@ Self-hosted embedding server for [jina-embeddings-v5-text-nano-retrieval](https:
 ## Project Structure
 
 ```
-├── .env                    # QUANT and EMBED_DIMS configuration
 ├── Dockerfile              # CPU build on debian:bookworm-slim (default)
 ├── Dockerfile.cuda         # NVIDIA CUDA build on nvidia/cuda runtime
 ├── docker-compose.yml      # Base service definition (CPU)
 ├── docker-compose.cuda.yml # Compose override for GPU support
-├── download-model.sh       # Downloads GGUF model from HuggingFace
+├── download-model.sh       # Downloads the F16 GGUF model from HuggingFace
 └── models/                 # Model files (created by download script)
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Edit .env to choose quantization and embedding dimensions
-vi .env
-
-# 2. Download the model (reads QUANT from .env)
+# 1. Download the model (~424 MB)
 ./download-model.sh
 
-# 3. Build and start the server
+# 2. Build and start the server
 docker compose up --build
 ```
 
 The OpenAI-compatible embedding API will be available at `http://localhost:8080`.
-
-## Configuration via `.env`
-
-Both settings live in `.env`:
-
-```bash
-# Quantization (used by docker-compose + download-model.sh)
-# Options: F16, Q8_0, Q6_K, Q5_K_M, Q4_K_M, Q3_K_M, Q2_K
-QUANT=F16
-
-# Matryoshka embedding dimensions (used when creating ES pipeline + index)
-# Options: 32, 64, 128, 256, 512, 768
-EMBED_DIMS=768
-```
-
-**`QUANT`** controls which GGUF model file the server loads. Changing it requires downloading the new model and restarting:
-
-```bash
-# Switch to Q4_K_M
-sed -i '' 's/^QUANT=.*/QUANT=Q4_K_M/' .env
-./download-model.sh
-docker compose up -d
-```
-
-**`EMBED_DIMS`** controls the Matryoshka truncation dimension. The server always outputs full 768-dim vectors — truncation happens in the Elasticsearch ingest pipeline. Changing it requires recreating the ES pipeline and index (see Elasticsearch section below).
-
-| Quantization | Model size | Embedding quality |
-|-------------|-----------|-------------------|
-| F16 | ~424 MB | Full precision |
-| Q8_0 | ~215 MB | Near-lossless |
-| Q6_K | ~170 MB | Near-lossless |
-| Q4_K_M | ~130 MB | Good |
-
-| Dimensions | Storage/doc | Search quality |
-|-----------|------------|----------------|
-| 768 | ~3 KB | Maximum |
-| 256 | ~1 KB | Good tradeoff |
-| 128 | ~512 B | Compact |
-| 64 | ~256 B | Coarse |
 
 ## Usage
 
@@ -88,8 +45,6 @@ curl -s http://localhost:8080/v1/embeddings \
 **Important:** For the retrieval variant, prefix inputs with `Query: ` or `Document: ` to get proper asymmetric embeddings for search use cases.
 
 ## Elasticsearch Integration
-
-
 
 Register the inference endpoint, then create a pipeline that prepends `Document: ` at index time and (optionally) truncates embeddings to `EMBED_DIMS`:
 
@@ -136,10 +91,11 @@ PUT _ingest/pipeline/jina-embeddings
 }
 ```
 
-For Matryoshka truncation (e.g. 32 dims), add a script processor:
+The model supports [Matryoshka embeddings](https://huggingface.co/blog/matryoshka) — the first N dimensions are independently meaningful, so you can truncate for smaller/faster vectors. Supported dimensions are **32, 64, 128, 256, 512, 768**.
+Add a script processor to the pipeline to truncate (e.g. to 32 dims):
 
 ```
-PUT _ingest/pipeline/jina-embeddings
+PUT _ingest/pipeline/jina-embeddings-32
 {
   "description": "Generate embeddings with jina-embeddings-v5-text-nano-retrieval",
   "processors": [
@@ -186,11 +142,11 @@ PUT jina-demo
       },
       "content_embedding": {
         "type": "dense_vector",
-        "dims": 32,
+        "dims": 768,
         "similarity": "cosine",
         "index": true
       }
-    }
+}
   }
 }
 ```
@@ -328,7 +284,7 @@ All llama-server options can be set via `LLAMA_ARG_*` environment variables in `
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLAMA_ARG_MODEL` | from `QUANT` in `.env` | Path to the GGUF model file |
+| `LLAMA_ARG_MODEL` | `v5-nano-retrieval-F16.gguf` | Path to the GGUF model file |
 | `LLAMA_ARG_EMBEDDINGS` | `1` | Enable embedding mode (required) |
 | `LLAMA_ARG_POOLING` | `last` | Pooling strategy — this model uses last-token pooling |
 | `LLAMA_ARG_CTX_SIZE` | `8192` | Max context length (model supports up to 8192) |

@@ -10,7 +10,7 @@ services:
     volumes:
       - ./models:/models:ro
     environment:
-      - LLAMA_ARG_MODEL=/models/v5-nano-retrieval-${QUANT:-F16}.gguf
+      - LLAMA_ARG_MODEL=/models/v5-nano-retrieval-F16.gguf
       - LLAMA_ARG_EMBEDDINGS=1
       - LLAMA_ARG_POOLING=last
       - LLAMA_ARG_BATCH_SIZE=8192
